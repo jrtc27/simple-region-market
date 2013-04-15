@@ -1,6 +1,7 @@
 package me.ienze.SimpleRegionMarket;
 
 import java.util.logging.Level;
+import java.util.regex.Pattern;
 
 import net.milkbowl.vault.economy.Economy;
 
@@ -14,6 +15,10 @@ import com.nijikokun.register.payment.Methods;
 import me.ienze.SimpleRegionMarket.handlers.LangHandler;
 
 public class EconomyManager {
+	public static final String BANK_PREFIX = "$";
+	public static final String BANK_PREFIX_QUOTED = Pattern.quote(BANK_PREFIX);
+	public static final String BANK_PREFIX_REPLACE = "^" + BANK_PREFIX_QUOTED;
+
 	private final SimpleRegionMarket plugin;
 
 	private int enableEconomy;
@@ -52,6 +57,18 @@ public class EconomyManager {
 		return economy != null;
 	}
 
+	public boolean hasBankSupport() {
+		return enableEconomy == 2 && economy.hasBankSupport() && !economy.getName().startsWith("iConomy");
+	}
+
+	public boolean isBank(String name) {
+		return name.startsWith(BANK_PREFIX);
+	}
+
+	public String stripBankPrefix(String name) {
+		return name.replaceFirst(BANK_PREFIX_REPLACE, "");
+	}
+
 	public Method getEconomicManager() {
 		if (Methods.hasMethod()) {
 			return Methods.getMethod();
@@ -84,12 +101,27 @@ public class EconomyManager {
 					}
 				}
 			} else if (enableEconomy == 2) {
-				if (money > 0) {
-					LangHandler.directOut(Level.FINEST, "[EconomyManager - Register] Adding " + String.valueOf(money) + " to Account " + account);
-					economy.depositPlayer(account, money);
+				if (isBank(account)) {
+					if (hasBankSupport()) {
+						account = stripBankPrefix(account);
+						if (money > 0) {
+							LangHandler.directOut(Level.FINEST, "[EconomyManager - Register] Adding " + String.valueOf(money) + " to Bank Account " + account);
+							return economy.bankDeposit(account, money).transactionSuccess();
+						} else {
+							LangHandler.directOut(Level.FINEST, "[EconomyManager] Money is zero");
+							return economy.bankWithdraw(account, -money).transactionSuccess();
+						}
+					} else {
+						return false;
+					}
 				} else {
-					LangHandler.directOut(Level.FINEST, "[EconomyManager] Money is zero");
-					economy.withdrawPlayer(account, -money);
+					if (money > 0) {
+						LangHandler.directOut(Level.FINEST, "[EconomyManager - Register] Adding " + String.valueOf(money) + " to Account " + account);
+						return economy.depositPlayer(account, money).transactionSuccess();
+					} else {
+						LangHandler.directOut(Level.FINEST, "[EconomyManager] Money is zero");
+						return economy.withdrawPlayer(account, -money).transactionSuccess();
+					}
 				}
 			}
 		} catch (final Exception e) {
@@ -100,18 +132,26 @@ public class EconomyManager {
 	}
 
 	public boolean econHasEnough(String account, double money) {
-		boolean ret = false;
 		if (money == 0) {
 			return true;
 		}
 		if (enableEconomy == 1) {
 			if (getEconomicManager() != null) {
-				ret = getEconomicManager().getAccount(account).hasEnough(money);
+				return getEconomicManager().getAccount(account).hasEnough(money);
 			}
 		} else if (enableEconomy == 2) {
-			ret = economy.has(account, money);
+			if (isBank(account)) {
+				if (hasBankSupport()) {
+					account = stripBankPrefix(account);
+					return economy.bankHas(account, money).transactionSuccess();
+				} else {
+					return false;
+				}
+			} else {
+				return economy.has(account, money);
+			}
 		}
-		return ret;
+		return false;
 	}
 
 	public String econFormat(double price) {
